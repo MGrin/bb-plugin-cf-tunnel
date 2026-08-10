@@ -1,0 +1,46 @@
+{
+  "name": "bb-plugin-cf-tunnel",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.36",
+    "bbPluginSdk": "^0.4.1"
+  },
+  "bb": {
+    "name": "Cloudflare Tunnel",
+    "description": "Reach bb from anywhere over your own Cloudflare Tunnel and Access policy, replacing bb connect",
+    "branding": {
+      "icon": "Cloud"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types --test-timeout=10000 lib/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.0"
+  },
+  "description": "Reach your bb instance from anywhere over your own Cloudflare Tunnel and Access policy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGrin/bb-plugin-cf-tunnel.git"
+  },
+  "keywords": [
+    "bb-plugin",
+    "getbb",
+    "cloudflare",
+    "cloudflare-tunnel",
+    "cloudflare-access",
+    "remote-access"
+  ]
+}
