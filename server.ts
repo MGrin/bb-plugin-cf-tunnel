@@ -44,11 +44,13 @@ export const rpcContract = defineRpcContract({
   },
 });
 
+import { reportedState, shouldShowError, type ConnectorState } from "./lib/connector-state.ts";
+
 const STATE_KEY = "provision-state";
 const SHARES_KEY = "shares";
 const ROUTER_PORT_KEY = "router-port";
 
-type ConnectorState = "starting" | "connected" | "down" | "not-provisioned";
+
 
 export default async function plugin(bb: BbPluginApi) {
   // `secret: true` lands in a 0600 file under <dataDir>/plugins/<id>/secrets/,
@@ -115,7 +117,14 @@ export default async function plugin(bb: BbPluginApi) {
     })());
 
   let shares = await loadShares();
-  let connectorState: ConnectorState = "not-provisioned";
+  // "unknown" until something MEASURES it. The old initial value was
+  // "not-provisioned", which is not a neutral default — it is a specific claim
+  // that tells the reader to run `bb cf-tunnel provision`. When the connector
+  // failed for an unrelated reason (it could not find cloudflared on launchd's
+  // PATH) that label sent mgrin, and an agent, to run provision repeatedly
+  // against a tunnel that had been fully provisioned for weeks.
+  let connectorState: ConnectorState = "unknown";
+  let connectorError: string | null = null;
   let router: RunningRouter | null = null;
 
   // ------------------------------------------------------------ JWT check ---
@@ -284,15 +293,23 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.background.service("connector", {
     async start(signal) {
+      // Any throw out of start() is why the tunnel is not up, so it is the one
+      // thing status must be able to show. Without this the reader sees a state
+      // word and no reason, and the reason was the whole answer.
+      const fail = (state: ConnectorState, msg: string): never => {
+        connectorState = state;
+        connectorError = msg;
+        throw new Error(msg);
+      };
       const st = await loadState();
       if (st.connectorToken === undefined) {
-        connectorState = "not-provisioned";
-        throw new Error("not provisioned — run `bb cf-tunnel provision`");
+        fail("not-provisioned", "not provisioned — run `bb cf-tunnel provision`");
       }
       if (!(await accessHealthy())) {
-        connectorState = "down";
-        throw new Error("Access application missing — refusing to serve bb unprotected");
+        fail("down", "Access application missing — refusing to serve bb unprotected");
       }
+      connectorError = null;
+      try {
       await runConnector({
         connectorToken: st.connectorToken,
         signal,
@@ -301,6 +318,11 @@ export default async function plugin(bb: BbPluginApi) {
           connectorState = s;
         },
       });
+      } catch (e) {
+        connectorError = e instanceof Error ? e.message : String(e);
+        connectorState = "down";
+        throw e;
+      }
     },
   });
 
@@ -365,15 +387,27 @@ export default async function plugin(bb: BbPluginApi) {
 
       const st = await loadState();
       const live = activeShares(shares, Date.now());
+      // Provisioning is a fact about stored state, so read it from there rather
+      // than from a flag a failed service may never have set. A token present
+      // with the connector down is NOT "not-provisioned" — it is provisioned and
+      // broken, and those need different actions from the reader.
+      const reported = reportedState({
+        provisioned: st.connectorToken !== undefined,
+        observed: connectorState,
+      });
+      const live2 = live;
       const lines = [
-        `state:    ${connectorState}`,
+        `state:    ${reported}`,
         `url:      https://${cfg.hostname}`,
         `tunnel:   ${st.tunnelId ?? "(not provisioned)"}`,
         `router:   127.0.0.1:${routerPort}`,
         `protected: ${protectedDomains(cfg.hostname).join(", ")}`,
-        live.length === 0
+        ...(shouldShowError({ reported, error: connectorError })
+          ? [`error:    ${connectorError}`]
+          : []),
+        live2.length === 0
           ? "shares:   (none)"
-          : `shares:\n${live
+          : `shares:\n${live2
               .map((s) => `  ${shareUrl(s.port, cfg.hostname)}  expires in ${Math.round((s.expiresAt - Date.now()) / 60000)}m`)
               .join("\n")}`,
       ];
