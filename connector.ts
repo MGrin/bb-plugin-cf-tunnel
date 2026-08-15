@@ -12,10 +12,30 @@ import path from "node:path";
 export interface ResolveCloudflaredArgs {
   pathEnv: string;
   exists: (p: string) => boolean;
+  /** Overridable so the test does not depend on what is installed here. */
+  fallbackDirs?: readonly string[];
 }
 
+// Where package managers put cloudflared, searched AFTER $PATH.
+//
+// This exists because of a real outage. bb launched from the GUI after a machine
+// restart has PATH=/usr/bin:/bin:/usr/sbin:/sbin — the launchd default — while
+// Homebrew installs to /opt/homebrew/bin. So the connector could not find a
+// binary that was plainly installed, threw "cloudflared not found on PATH", and
+// the service sat in backoff with no tunnel. Started from a terminal it worked
+// perfectly, which is why it looked like "it breaks when I reboot".
+//
+// A GUI process inherits launchd's environment, not the user's shell — so PATH
+// is not evidence of what is installed on the machine.
+export const CLOUDFLARED_FALLBACK_DIRS = [
+  "/opt/homebrew/bin",   // Homebrew, Apple silicon
+  "/usr/local/bin",      // Homebrew, Intel — and the official .pkg
+  "/opt/local/bin",      // MacPorts
+];
+
 export function resolveCloudflaredPath(args: ResolveCloudflaredArgs): string | null {
-  for (const dir of args.pathEnv.split(":")) {
+  const fallbacks = args.fallbackDirs ?? CLOUDFLARED_FALLBACK_DIRS;
+  for (const dir of [...args.pathEnv.split(":"), ...fallbacks]) {
     if (dir.length === 0) continue;
     const candidate = path.join(dir, "cloudflared");
     if (args.exists(candidate)) return candidate;
@@ -33,7 +53,10 @@ export interface RunConnectorArgs {
 export async function runConnector(args: RunConnectorArgs): Promise<void> {
   const bin = resolveCloudflaredPath({ pathEnv: process.env.PATH ?? "", exists: existsSync });
   if (bin === null) {
-    throw new Error("cloudflared not found on PATH — install it with `brew install cloudflared`");
+    throw new Error(
+      `cloudflared not found. Looked on PATH (${process.env.PATH ?? "(empty)"}) and in ` +
+        `${CLOUDFLARED_FALLBACK_DIRS.join(", ")}. Install it with \`brew install cloudflared\`.`,
+    );
   }
 
   args.onState?.("starting");
