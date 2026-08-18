@@ -12,6 +12,7 @@
 //      any request without a valid Access JWT.
 //   2. Cloudflare closes idle WebSockets at ~126s (measured). The router pings
 //      every 30s; without it an idle terminal on the phone dies silently.
+import { execFileSync } from "node:child_process";
 import { createCloudflareClient } from "./lib/cloudflare.ts";
 import { provision, protectedDomains, acceptedAuds, type ProvisionState } from "./lib/provision.ts";
 import { verifyAccessJwt, type JwtClaims } from "./lib/access-jwt.ts";
@@ -51,6 +52,40 @@ const SHARES_KEY = "shares";
 const ROUTER_PORT_KEY = "router-port";
 
 
+
+/**
+ * Which commit is this PROCESS running? (MX-139/MX-141)
+ *
+ * bb bundles a `path:` plugin FROM SOURCE at reload, so a revision read here — at module
+ * load, the same moment — is by construction the code now executing. Nothing else can say:
+ * `bb plugin list` prints `running` and the source path but no revision, `bb plugin source`
+ * has none to record for a path: source, and dist/ is NOT the loaded artifact (its mtime was
+ * measured lying by 15 minutes). So a checkout can sit clean on main, every drift check
+ * green, while the process runs something older.
+ *
+ * Synchronous on purpose: the value must be fixed before anything can observe it, and it is
+ * one git call per load. Failure yields rev: null rather than a guess — a tarball install has
+ * no git dir, and that must stay distinguishable from a real mismatch so a checker reports
+ * UNKNOWN rather than OK. `dirty` rides along because a bundle built from an edited tree
+ * matches NO commit, and comparing revisions alone would call that a match.
+ */
+const BUILD_STAMP: { rev: string | null; dirty: boolean | null; sourceDir: string; loadedAt: string; why: string | null } = (() => {
+  const here = import.meta.dirname;
+  const loadedAt = new Date().toISOString();
+  try {
+    const git = (args: string[]): string =>
+      execFileSync("git", ["-C", here, ...args], { encoding: "utf8", timeout: 5000 }).trim();
+    return {
+      rev: git(["rev-parse", "HEAD"]),
+      dirty: git(["status", "--porcelain"]).length > 0,
+      sourceDir: git(["rev-parse", "--show-toplevel"]),
+      loadedAt,
+      why: null,
+    };
+  } catch (e) {
+    return { rev: null, dirty: null, sourceDir: here, loadedAt, why: e instanceof Error ? e.message : String(e) };
+  }
+})();
 
 export default async function plugin(bb: BbPluginApi) {
   // `secret: true` lands in a 0600 file under <dataDir>/plugins/<id>/secrets/,
@@ -345,9 +380,27 @@ export default async function plugin(bb: BbPluginApi) {
       { name: "provision", summary: "Create/converge tunnel, DNS and Access", usage: "bb cf-tunnel provision" },
       { name: "share", summary: "Expose a local port", usage: "bb cf-tunnel share <port> [--ttl <hours>]" },
       { name: "unshare", summary: "Stop exposing a local port", usage: "bb cf-tunnel unshare <port>" },
+      {
+        name: "build",
+        summary: "Which commit this RUNNING process was loaded from (not the checkout)",
+        usage: "bb cf-tunnel build [--json]",
+      },
     ],
     async run(argv) {
       const [cmd, arg] = argv;
+
+      // Answered FIRST, ahead of `provision` (which creates tunnel/DNS/Access) and `share`
+      // (which EXPOSES a local port to the internet): "what is running" must stay answerable
+      // when the thing running is broken, and must never have a side effect of its own.
+      if (cmd === "build") {
+        if (argv.includes("--json")) return { exitCode: 0, stdout: JSON.stringify(BUILD_STAMP) };
+        const dirty = BUILD_STAMP.dirty === null ? "" : BUILD_STAMP.dirty ? " +dirty" : "";
+        const why = BUILD_STAMP.why ? `  (${BUILD_STAMP.why})` : "";
+        return {
+          exitCode: 0,
+          stdout: `loaded ${BUILD_STAMP.rev ?? "unknown"}${dirty} from ${BUILD_STAMP.sourceDir} at ${BUILD_STAMP.loadedAt}${why}`,
+        };
+      }
 
       if (cmd === "provision") {
         const st = await doProvision();
