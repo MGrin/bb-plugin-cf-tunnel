@@ -54,7 +54,7 @@ const ROUTER_PORT_KEY = "router-port";
 
 
 /**
- * Which commit is this PROCESS running? (MX-139/MX-141)
+ * Which commit is this PROCESS running?
  *
  * bb bundles a `path:` plugin FROM SOURCE at reload, so a revision read here — at module
  * load, the same moment — is by construction the code now executing. Nothing else can say:
