@@ -248,14 +248,26 @@ export default async function plugin(bb: BbPluginApi) {
     return null;
   }
 
+  // A refusal used to be a bare 403 "forbidden" with the reason kept nowhere —
+  // mgrin saw exactly that on his phone on 2026-09-09 after a successful
+  // Cloudflare login, and nothing on the machine could say which of the six
+  // checks had failed. The reason is logged here; the response body stays
+  // "forbidden" so the edge learns nothing it did not already know.
   const checkAccess = async (token: string | undefined) => {
     const st = await loadState();
-    return verifyAccessJwt({
+    const audiences = acceptedAuds(st);
+    const verdict = await verifyAccessJwt({
       token,
-      audiences: acceptedAuds(st),
+      audiences,
       now: Date.now(),
       verifySignature,
     });
+    if (!verdict.ok) {
+      bb.log.warn(
+        `access refused: ${verdict.reason} (token ${token === undefined ? "absent" : `${token.length} chars`}, ${audiences.length} accepted audience(s))`,
+      );
+    }
+    return verdict;
   };
 
   // ------------------------------------------------------------ provision ---
