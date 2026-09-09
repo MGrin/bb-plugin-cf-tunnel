@@ -37,3 +37,19 @@ export function shouldShowError(args: {
 }): boolean {
   return args.error !== null && args.reported !== "connected";
 }
+
+/**
+ * What a missing Cloudflare Access application MEANS, stated once.
+ *
+ * The router verifies a Cloudflare Access token on every request and answers
+ * `forbidden` without one, so when the Access application is gone Cloudflare
+ * issues no tokens and every request is refused: bb is DOWN from the phone, not
+ * exposed. The old line said "bb may be exposed; stopping is required" and the
+ * plugin then stopped nothing — a threat it did not carry out, over a hazard the
+ * router already closes. Serving continues; the reader is told where to look.
+ */
+export function accessStatusLine(missing: boolean): string {
+  return missing
+    ? "access:   MISSING — remote access is down until the Access application is restored (Cloudflare Zero Trust → Access → Applications, or `bb cf-tunnel provision`)"
+    : "access:   ok";
+}
