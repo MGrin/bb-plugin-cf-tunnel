@@ -41,9 +41,11 @@ from that:
   unconditionally, not "when we think Access is on". The router listens on
   loopback, so without this check any local process could bypass authentication
   by setting a `Host` header.
-- **The connector refuses to start** unless the Access application exists, and
-  an hourly check re-verifies it. Serving bb without Access is worse than not
-  serving it.
+- **A missing Access application is an outage, not an exposure.** The router
+  refuses every request without a valid token, so if the application disappears
+  Cloudflare issues no tokens and every visit reads `forbidden`. The connector
+  keeps serving; start-up and an hourly check log it once and `bb cf-tunnel
+  status` shows `access: MISSING` with where to restore it.
 - **Shared ports expire** (default 24h), and expiry is evaluated per request
   rather than by a sweeper, so a dead timer can't leave a port exposed.
 - **The API token is a `secret: true` setting**, which bb stores in a 0600 file

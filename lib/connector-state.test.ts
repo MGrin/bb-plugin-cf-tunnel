@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reportedState, shouldShowError } from "./connector-state.ts";
+import { accessStatusLine, reportedState, shouldShowError } from "./connector-state.ts";
 
 test("no token stored is the only thing that may be called not-provisioned", () => {
   assert.equal(reportedState({ provisioned: false, observed: "unknown" }), "not-provisioned");
@@ -24,4 +24,15 @@ test("the error line explains a bad state and never decorates a good one", () =>
   assert.equal(shouldShowError({ reported: "unknown", error: "boom" }), true);
   assert.equal(shouldShowError({ reported: "connected", error: "stale error" }), false);
   assert.equal(shouldShowError({ reported: "down", error: null }), false);
+});
+
+// The router refuses every tokenless request, so a missing Access application
+// is an outage, not an exposure — and the line must say where to fix it.
+test("a missing Access application reads as DOWN with the remedy, never as exposed", () => {
+  const line = accessStatusLine(true);
+  assert.match(line, /MISSING/);
+  assert.match(line, /down until/);
+  assert.match(line, /provision/);
+  assert.doesNotMatch(line, /exposed/);
+  assert.equal(accessStatusLine(false), "access:   ok");
 });

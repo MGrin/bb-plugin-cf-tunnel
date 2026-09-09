@@ -45,7 +45,7 @@ export const rpcContract = defineRpcContract({
   },
 });
 
-import { reportedState, shouldShowError, type ConnectorState } from "./lib/connector-state.ts";
+import { accessStatusLine, reportedState, shouldShowError, type ConnectorState } from "./lib/connector-state.ts";
 
 const STATE_KEY = "provision-state";
 const SHARES_KEY = "shares";
@@ -196,6 +196,10 @@ export default async function plugin(bb: BbPluginApi) {
   // against a tunnel that had been fully provisioned for weeks.
   let connectorState: ConnectorState = "unknown";
   let connectorError: string | null = null;
+  // Set by the hourly access-health check and at connector start. The router
+  // refuses every tokenless request, so this is an OUTAGE flag, not a security
+  // one — see accessStatusLine for why serving continues.
+  let accessMissing = false;
   let router: RunningRouter | null = null;
 
   // ------------------------------------------------------------ JWT check ---
@@ -405,8 +409,9 @@ export default async function plugin(bb: BbPluginApi) {
       if (st.connectorToken === undefined) {
         fail("not-provisioned", "not provisioned — run `bb cf-tunnel provision`");
       }
-      if (!(await accessHealthy())) {
-        fail("down", "Access application missing — refusing to serve bb unprotected");
+      accessMissing = !(await accessHealthy());
+      if (accessMissing) {
+        bb.log.error(accessStatusLine(true));
       }
       connectorError = null;
       try {
@@ -429,10 +434,13 @@ export default async function plugin(bb: BbPluginApi) {
   bb.background.schedule("access-health", "0 * * * *", async () => {
     const st = await loadState();
     if (st.connectorToken === undefined) return;
-    if (!(await accessHealthy())) {
-      bb.log.error("Access application missing — bb may be exposed; stopping is required");
-      connectorState = "down";
+    const missingNow = !(await accessHealthy());
+    if (missingNow !== accessMissing) {
+      // Log on the CHANGE only: once when it goes, once when it is back.
+      if (missingNow) bb.log.error(accessStatusLine(true));
+      else bb.log.info("Access application restored — remote access is back");
     }
+    accessMissing = missingNow;
   });
 
   // ------------------------------------------------------------------ CLI ---
@@ -520,6 +528,7 @@ export default async function plugin(bb: BbPluginApi) {
         `tunnel:   ${st.tunnelId ?? "(not provisioned)"}`,
         `router:   127.0.0.1:${routerPort}`,
         `protected: ${protectedDomains(cfg.hostname).join(", ")}`,
+        accessStatusLine(accessMissing),
         ...(shouldShowError({ reported, error: connectorError })
           ? [`error:    ${connectorError}`]
           : []),
