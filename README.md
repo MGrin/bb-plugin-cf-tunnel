@@ -74,13 +74,41 @@ bb plugin reload cf-tunnel
 bb cf-tunnel provision
 ```
 
-The API token needs exactly three permissions:
+Every setting above is also editable on the plugin's page in bb (Extensions → Plugins →
+Cloudflare Tunnel), and each field's description there says where the value comes from.
+The hostname is whatever second-level name you like in your zone — `bb.example.com`,
+`agents.example.com` — and can be changed later with a reprovision.
 
-| Scope | Permission |
-|---|---|
-| Account | Cloudflare Tunnel → Edit |
-| Account | Access: Apps and Policies → Edit |
-| Zone | DNS → Edit (on your zone only) |
+### Create the API token
+
+1. Open <https://dash.cloudflare.com/profile/api-tokens> (profile menu, top right →
+   **My Profile** → **API Tokens**).
+2. **Create Token** → scroll to **Custom token** → **Get started**.
+3. Name it (e.g. `bb cf-tunnel on <machine>`).
+4. **Permissions** — exactly these three rows, nothing else:
+
+   | Scope | Item | Permission |
+   |---|---|---|
+   | Account | Cloudflare Tunnel | Edit |
+   | Account | Access: Apps and Policies | Edit |
+   | Zone | DNS | Edit |
+
+5. **Account Resources** → *Include* → your account.
+6. **Zone Resources** → *Include* → *Specific zone* → the zone your hostname lives in
+   (not *All zones*).
+7. **Client IP Address Filtering** — leave empty. `cloudflared` connects outbound from
+   this machine, and the machine travels.
+8. **TTL** — your call; the plugin re-verifies the token on every provision and tells
+   you when it has expired.
+9. **Continue to summary** → **Create Token**. Copy it now: Cloudflare shows it once.
+10. Store it in your password manager, then `bb plugin config cf-tunnel set apiToken <token>`
+    (or paste it on the plugin page). It lands in a 0600 file under
+    `<dataDir>/plugins/cf-tunnel/secrets/`, never in `bb.db`.
+
+Where the ids come from: **account id** — the dashboard URL after you pick the account
+(`dash.cloudflare.com/<account id>`), or any zone's Overview page, right column, *API →
+Account ID*; **zone id** — same Overview page, *API → Zone ID*; **team domain** — Zero
+Trust dashboard → Settings → Custom Pages → *Team domain*.
 
 **If your token is account-owned**, note that `GET /user/tokens/verify` reports
 `Invalid API Token` for a perfectly valid token. The correct path — and the one

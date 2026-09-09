@@ -96,19 +96,55 @@ export default async function plugin(bb: BbPluginApi) {
     apiToken: {
       type: "string",
       label: "Cloudflare API token",
-      description: "From your password manager",
+      description:
+        "Create it at dash.cloudflare.com → profile (top right) → My Profile → API Tokens → Create Token → " +
+        "Custom token. Permissions, exactly three: Account · Cloudflare Tunnel · Edit; Account · Access: Apps and Policies · Edit; " +
+        "Zone · DNS · Edit. Account Resources: include your account. Zone Resources: include the one zone your hostname lives in. " +
+        "Leave client-IP filtering empty (cloudflared connects from this machine, wherever it is). " +
+        "Copy the token once — Cloudflare never shows it again — and paste it here; it is stored in a 0600 file, not in bb.db. " +
+        "Full walkthrough: README → Create the API token.",
       secret: true,
     },
-    accountId: { type: "string", label: "Cloudflare account id", default: "" },
-    zoneId: { type: "string", label: "Cloudflare zone id", default: "" },
-    hostname: { type: "string", label: "Hostname", description: "e.g. bb.example.com", default: "" },
+    accountId: {
+      type: "string",
+      label: "Cloudflare account id",
+      description:
+        "32 hex characters. dash.cloudflare.com → pick the account → the URL is dash.cloudflare.com/<account id>; " +
+        "also shown on any zone's Overview page, right column, under API → Account ID.",
+      default: "",
+    },
+    zoneId: {
+      type: "string",
+      label: "Cloudflare zone id",
+      description:
+        "32 hex characters. dash.cloudflare.com → the zone (domain) your hostname lives in → Overview → right column, API → Zone ID.",
+      default: "",
+    },
+    hostname: {
+      type: "string",
+      label: "Hostname",
+      description:
+        "The public name bb answers on, e.g. bb.example.com. Must be a SECOND-level name in the zone above " +
+        "(one label under the zone) — Cloudflare's free Universal SSL covers example.com and *.example.com only, " +
+        "so a.b.example.com fails TLS before Access is consulted. Shared ports become bb-p<port>.<zone>. " +
+        "Change it and run `bb cf-tunnel provision` again; the old DNS record and Access app are adopted or replaced.",
+      default: "",
+    },
     teamDomain: {
       type: "string",
       label: "Access team domain",
-      description: "e.g. yourteam.cloudflareaccess.com",
+      description:
+        "Zero Trust dashboard (one.dash.cloudflare.com) → Settings → Custom Pages → Team domain, e.g. yourteam.cloudflareaccess.com. " +
+        "Zero Trust must be enabled on the account (free plan is fine, up to 50 users).",
       default: "",
     },
-    allowedEmails: { type: "string", label: "Allowed emails", description: "comma-separated", default: "" },
+    allowedEmails: {
+      type: "string",
+      label: "Allowed emails",
+      description:
+        "Comma-separated. Only these addresses pass the Access policy; each gets a one-time PIN by email unless you add an IdP in Zero Trust.",
+      default: "",
+    },
     sessionDuration: { type: "string", label: "Access session duration", default: "720h" },
     shareTtlHours: { type: "string", label: "Default share TTL (hours)", default: "24" },
   });
