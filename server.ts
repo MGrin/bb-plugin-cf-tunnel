@@ -202,13 +202,30 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Cloudflare publishes the team's signing keys here. Verification is done
   // with the platform's own WebCrypto so the plugin ships no crypto library.
+  // AN EMPTY KEY SET IS NEVER CACHED. Until 2026-09-09 a fetch that came back
+  // without keys — a blip, a non-200, a body without `keys` — was cached for the
+  // full hour like a good one, and for that hour every token failed as "invalid
+  // signature": Cloudflare login worked, the router said "forbidden", and
+  // nothing was logged. That is the shape mgrin hit on his phone after a fresh
+  // plugin process. Now a bad fetch is logged, not cached, and the next request
+  // tries again.
   let jwks: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
   async function teamKeys(): Promise<JsonWebKey[]> {
     if (jwks !== null && Date.now() - jwks.fetchedAt < 3_600_000) return jwks.keys;
-    const res = await fetch(`https://${cfg.teamDomain}/cdn-cgi/access/certs`);
-    const body = (await res.json()) as { keys: JsonWebKey[] };
-    jwks = { keys: body.keys ?? [], fetchedAt: Date.now() };
-    return jwks.keys;
+    const url = `https://${cfg.teamDomain}/cdn-cgi/access/certs`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      bb.log.warn(`team keys: ${url} answered ${res.status}; keeping ${jwks?.keys.length ?? 0} cached key(s)`);
+      return jwks?.keys ?? [];
+    }
+    const body = (await res.json()) as { keys?: JsonWebKey[] };
+    const keys = body.keys ?? [];
+    if (keys.length === 0) {
+      bb.log.warn(`team keys: ${url} returned no keys; keeping ${jwks?.keys.length ?? 0} cached key(s)`);
+      return jwks?.keys ?? [];
+    }
+    jwks = { keys, fetchedAt: Date.now() };
+    return keys;
   }
 
   function b64url(s: string): Uint8Array {
